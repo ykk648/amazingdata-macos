@@ -30,7 +30,8 @@ Issues = "https://github.com/ykk648/amazingdata-macos/issues"
 
 [project.optional-dependencies]
 stream = ["websockets>=15,<17"]
-dev = ["pytest>=8,<10"]
+sdk-compat = ["pandas>=2"]
+dev = ["pandas>=2", "pytest>=8,<10"]
 
 [project.scripts]
 amazingdata-macos = "amazingdata_macos.cli:main"

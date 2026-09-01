@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from amazingdata_macos.client import Client
+from amazingdata_macos import sdk_compat
 
 
 CLIENT_MODULE = importlib.import_module("amazingdata_macos.client")
@@ -47,6 +48,47 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(
             client.websocket_url(),
             "wss://localhost:8765/ws/market?api_key=hello%20world",
+        )
+
+    def test_sdk_compat_restores_dataframes_and_old_kline_signature(self):
+        client = Client()
+        response = {
+            "ok": True,
+            "rows": 1,
+            "data": {"510300.SH": [{"kline_time": "2026-01-02", "close": 4.1}]},
+        }
+        with patch.object(CLIENT_MODULE, "urlopen", return_value=_Response(response)):
+            result = sdk_compat.MarketData(client=client).query_kline(
+                ["510300.SH"], 20260101, 20260102, sdk_compat.Period.day.value
+            )
+        self.assertEqual(result["510300.SH"].loc[0, "close"], 4.1)
+
+    def test_sdk_compat_uses_gateway_cache_for_factor_and_nav(self):
+        client = Client()
+        with patch.object(
+            client,
+            "query",
+            side_effect=[
+                [{"code": "510300.SH", "factor": 1.0}],
+                {"510300.SH": [{"date": "2026-01-02", "unit_nav": 4.0}]},
+            ],
+        ) as query:
+            factors = sdk_compat.BaseData(client).get_backward_factor(
+                ["510300.SH"], local_path="/host/cache", is_local=True
+            )
+            nav = sdk_compat.InfoData(client).get_fund_nav(
+                ["510300.SH"], local_path="/host/cache", is_local=True
+            )
+
+        self.assertEqual(factors.loc[0, "factor"], 1.0)
+        self.assertEqual(nav["510300.SH"].loc[0, "unit_nav"], 4.0)
+        self.assertEqual(
+            query.call_args_list[0].kwargs,
+            {"args": [["510300.SH"]], "is_local": True},
+        )
+        self.assertEqual(
+            query.call_args_list[1].kwargs,
+            {"args": [["510300.SH"]], "is_local": True},
         )
 
 

@@ -106,6 +106,29 @@ bars = ad.MarketData().query_kline(
 )
 ```
 
+### 兼容已有官方 SDK 调用
+
+Windows/Linux 项目可以继续直接导入官方 `AmazingData` / `tgw` wheel。若同一份
+业务代码也需要在 macOS 运行，只在导入位置增加平台分支即可，其余
+`BaseData`、`InfoData`、`MarketData(calendar)` 和 pandas DataFrame 返回值保持兼容：
+
+```sh
+python -m pip install -e '/path/to/amazingdata-macos[sdk-compat]'
+```
+
+```python
+import sys
+
+if sys.platform == "darwin":
+    from amazingdata_macos import sdk_compat as AmazingData
+else:
+    import AmazingData
+```
+
+macOS 下 `AmazingData.login(...)` 会忽略供应商凭据并检查本地网关是否就绪；供应商
+凭据仍只放在本仓库的 `.env`。兼容层覆盖常用的行情、复权因子和基金净值调用；需要
+尚未封装的接口时，请改用 `amazingdata_macos.Client` 的通用 `query()`。
+
 显式客户端写法：
 
 ```python
