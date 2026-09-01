@@ -1,5 +1,5 @@
 from .client import Client
-from .compat import BaseData, InfoData, MarketData, client, connect, login, subscribe
+from .sdk_compat import BaseData, InfoData, MarketData, client, connect, login, subscribe
 from .errors import (
     AmazingDataMacOSError,
     GatewayConnectionError,

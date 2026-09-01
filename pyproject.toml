@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Native macOS client for a local containerized AmazingData/TGW gateway"
 readme = "README.md"
 requires-python = ">=3.9"
+dependencies = ["pandas>=2"]
 license = "MIT"
 authors = [{name = "amazingdata-macos contributors"}]
 keywords = ["AmazingData", "TGW", "macOS", "market-data"]
@@ -30,8 +31,7 @@ Issues = "https://github.com/ykk648/amazingdata-macos/issues"
 
 [project.optional-dependencies]
 stream = ["websockets>=15,<17"]
-sdk-compat = ["pandas>=2"]
-dev = ["pandas>=2", "pytest>=8,<10"]
+dev = ["pytest>=8,<10"]
 
 [project.scripts]
 amazingdata-macos = "amazingdata_macos.cli:main"

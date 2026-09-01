@@ -1,42 +1,39 @@
 # amazingdata-macos
 
-在 Apple Silicon Mac 上原生调用银河证券 AmazingData / TGW 数据接口。
-
-官方 SDK 的二进制只支持 Windows 和 Linux x86_64。本项目把官方 SDK 放在一个
-本地 Linux amd64 容器中，Mac 上的研究、交易和数据处理代码仍由原生 Python、
-IDE 或虚拟环境运行，通过 `127.0.0.1` 的 HTTP/WebSocket 网关访问数据。
-
-```text
-macOS Python project
-        |
-        | HTTP / WebSocket (127.0.0.1:8765)
-        v
-Docker gateway: Python 3.14 + AmazingData + TGW (linux/amd64)
-        |
-        v
-China Galaxy Securities data service
-```
+在 Apple Silicon Mac 上调用银河证券 AmazingData / TGW 数据接口。官方 wheel 在
+本地 Docker 网关中运行，业务 Python 通过 `127.0.0.1:8765` 调用数据。
 
 ## 特点
 
-- 业务 Python 程序不进入 Docker，项目文件也不需要挂载进容器。
-- 提供接近官方习惯的 `BaseData / InfoData / MarketData` 调用方式。
-- 支持通用查询、接口签名发现和实时行情 WebSocket。
-- Apple Silicon 使用 Colima/Docker + Rosetta 运行官方 x86_64 库。
-- Docker、Debian 和 Python 依赖默认使用国内镜像。
-- 已验证的容器依赖版本被锁定，其他 Mac 的构建结果保持一致。
-- 私有 wheel、账号、密码和数据缓存均不会进入 Git。
+- 默认兼容 `BaseData`、`InfoData`、`MarketData` 等常用 SDK 调用，并返回 pandas DataFrame。
+- 支持通用查询和实时行情 WebSocket。
+- Docker、Debian 与 Python 依赖默认使用国内镜像。
+- wheel、账号、密码和数据缓存均不会进入 Git。
 
 ## 前置条件
 
-- Apple Silicon Mac，建议 macOS 13 或更高版本。
+- Apple Silicon Mac。
 - Docker Desktop，或 Colima + Docker CLI。
-- 从官方渠道取得以下两个 wheel：
-  - `tgw-*.whl`
-  - `AmazingData-*.whl`
+- 从官方渠道取得 `tgw-*.whl` 与 `AmazingData-*.whl`。
 - 有效的 TGW 账号、密码、服务器地址、端口和相应数据权限。
 
 本仓库不包含、也不授权重新分发官方 SDK wheel。
+
+使用 Homebrew 时：
+
+```sh
+brew install colima docker docker-compose docker-buildx
+```
+
+在 `~/.docker/config.json` 加入插件目录：
+
+```json
+{
+  "cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]
+}
+```
+
+Docker Desktop 已自带 Compose 和 Buildx。
 
 ## 一键准备
 
@@ -49,12 +46,7 @@ cd amazingdata-macos
   /path/to/AmazingData-1.1.9-cp314-none-any.whl
 ```
 
-脚本会：
-
-1. 将 wheel 复制到被 Git 忽略的 `vendor/`。
-2. 创建 `.env` 配置模板。
-3. 在需要时用 Rosetta 启动 Colima。
-4. 构建并启动本地网关。
+脚本会保存 wheel、创建 `.env`，并构建启动网关。
 
 编辑 `.env`：
 
@@ -65,7 +57,7 @@ TGW_HOST=your-server
 TGW_PORT=8600
 ```
 
-重新创建服务：
+配置完成后重启并检查：
 
 ```sh
 ./scripts/manage.sh restart
@@ -74,9 +66,9 @@ TGW_PORT=8600
 
 API 文档在 `http://127.0.0.1:8765/docs`。
 
-## 在 Mac 项目中安装客户端
+## 使用
 
-进入你自己的 Python 项目，而不是网关目录：
+在你的 Python 项目中安装：
 
 ```sh
 cd /path/to/your-python-project
@@ -89,7 +81,7 @@ python -m pip install -e /path/to/amazingdata-macos
 uv add --editable /path/to/amazingdata-macos
 ```
 
-此后业务代码由 Mac 原生 Python 执行：
+常用调用保持 SDK 风格：
 
 ```python
 import amazingdata_macos as ad
@@ -106,30 +98,7 @@ bars = ad.MarketData().query_kline(
 )
 ```
 
-### 兼容已有官方 SDK 调用
-
-Windows/Linux 项目可以继续直接导入官方 `AmazingData` / `tgw` wheel。若同一份
-业务代码也需要在 macOS 运行，只在导入位置增加平台分支即可，其余
-`BaseData`、`InfoData`、`MarketData(calendar)` 和 pandas DataFrame 返回值保持兼容：
-
-```sh
-python -m pip install -e '/path/to/amazingdata-macos[sdk-compat]'
-```
-
-```python
-import sys
-
-if sys.platform == "darwin":
-    from amazingdata_macos import sdk_compat as AmazingData
-else:
-    import AmazingData
-```
-
-macOS 下 `AmazingData.login(...)` 会忽略供应商凭据并检查本地网关是否就绪；供应商
-凭据仍只放在本仓库的 `.env`。兼容层覆盖常用的行情、复权因子和基金净值调用；需要
-尚未封装的接口时，请改用 `amazingdata_macos.Client` 的通用 `query()`。
-
-显式客户端写法：
+也可使用客户端：
 
 ```python
 from amazingdata_macos import Client
@@ -144,7 +113,7 @@ result = client.query(
 )
 ```
 
-客户端默认返回 SDK 数据本身。需要网关的 `rows` 等元数据时：
+需要网关的 `rows` 等元数据时：
 
 ```python
 envelope = client.query("BaseData", "get_calendar", market="SH", raw=True)
@@ -152,7 +121,7 @@ envelope = client.query("BaseData", "get_calendar", market="SH", raw=True)
 
 ## 实时行情
 
-安装可选 WebSocket 依赖：
+安装实时行情依赖：
 
 ```sh
 python -m pip install -e '/path/to/amazingdata-macos[stream]'
@@ -173,9 +142,7 @@ async def main():
 asyncio.run(main())
 ```
 
-官方 SDK 的实时订阅在同一进程中只能可靠维持一个底层订阅集合。生产使用时建议在
-`.env` 的 `AMAZINGDATA_SUBSCRIBE_CODES` 中预先配置稳定的代码全集；每个 Mac 客户端
-可以从这个全集中选择自己的子集。扩展全集后需重启网关。
+在 `.env` 的 `AMAZINGDATA_SUBSCRIBE_CODES` 配置订阅代码全集；更新后重启网关。
 
 ## 运维命令
 
@@ -195,9 +162,9 @@ colima stop
 
 ## 安全与开源
 
-- Docker 端口只绑定到 Mac 的 `127.0.0.1`。
+- Docker 端口仅绑定到 `127.0.0.1`。
 - `.env`、wheel、本地数据和服务状态均被 `.gitignore` 排除。
-- 可在 `.env` 设置 `AMAZINGDATA_API_KEY`；Mac 客户端读取同名环境变量。
+- 可在 `.env` 设置 `AMAZINGDATA_API_KEY`，客户端读取同名环境变量。
 - 不要把 TGW 端口或本网关直接暴露到公网。
 - 本项目是非官方社区项目，与中国银河证券股份有限公司无隶属或背书关系。
 - 项目代码使用 MIT License；官方 SDK 继续受其自身许可约束。

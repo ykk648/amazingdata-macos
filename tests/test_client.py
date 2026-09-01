@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from amazingdata_macos.client import Client
 from amazingdata_macos import sdk_compat
+import amazingdata_macos as ad
 
 
 CLIENT_MODULE = importlib.import_module("amazingdata_macos.client")
@@ -90,6 +91,9 @@ class ClientTest(unittest.TestCase):
             query.call_args_list[1].kwargs,
             {"args": [["510300.SH"]], "is_local": True},
         )
+
+    def test_package_exports_sdk_compatible_market_data(self):
+        self.assertIs(ad.MarketData, sdk_compat.MarketData)
 
 
 if __name__ == "__main__":

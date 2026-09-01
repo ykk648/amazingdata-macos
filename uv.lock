@@ -19,17 +19,15 @@ resolution-markers = [
 name = "amazingdata-macos"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "pandas", version = "2.3.3", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.5", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.11'" },
+]
 
 [package.optional-dependencies]
 dev = [
-    { name = "pandas", version = "2.3.3", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.5", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.1.1", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.10'" },
-]
-sdk-compat = [
-    { name = "pandas", version = "2.3.3", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.5", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 stream = [
     { name = "websockets", version = "15.0.1", source = { registry = "https://mirrors.bfsu.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.10'" },
@@ -38,12 +36,11 @@ stream = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pandas", marker = "extra == 'dev'", specifier = ">=2" },
-    { name = "pandas", marker = "extra == 'sdk-compat'", specifier = ">=2" },
+    { name = "pandas", specifier = ">=2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<10" },
     { name = "websockets", marker = "extra == 'stream'", specifier = ">=15,<17" },
 ]
-provides-extras = ["stream", "sdk-compat", "dev"]
+provides-extras = ["stream", "dev"]
 
 [[package]]
 name = "colorama"

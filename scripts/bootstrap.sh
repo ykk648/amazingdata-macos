@@ -52,6 +52,15 @@ if ! docker info >/dev/null 2>&1; then
     fi
 fi
 
+if ! docker compose version >/dev/null 2>&1; then
+    printf '%s\n' "Docker Compose v2 is required. On Homebrew Docker CLI, install docker-compose and configure its plugin path." >&2
+    exit 1
+fi
+if ! docker buildx version >/dev/null 2>&1; then
+    printf '%s\n' "Docker Buildx is required to build the linux/amd64 gateway image. On Homebrew, install docker-buildx." >&2
+    exit 1
+fi
+
 cd "$PROJECT_DIR"
 docker compose build
 docker compose up -d

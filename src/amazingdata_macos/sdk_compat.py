@@ -145,6 +145,24 @@ class MarketData(_RemoteSDK):
 _default_client = Client()
 
 
+def connect(
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout: float = 180.0,
+) -> dict[str, Any]:
+    global _default_client
+    _default_client = Client(base_url=base_url, api_key=api_key, timeout=timeout)
+    return _default_client.health()
+
+
 def login(*_args: Any, **_kwargs: Any) -> bool:
     """Verify the local gateway instead of accepting vendor credentials on macOS."""
-    return bool(_default_client.health().get("ready"))
+    return bool(connect().get("ready"))
+
+
+def client() -> Client:
+    return _default_client
+
+
+def subscribe(code_list: list[str], period: str = "snapshot"):
+    return _default_client.stream(code_list, period)
