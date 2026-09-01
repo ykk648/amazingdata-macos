@@ -1,0 +1,21 @@
+services:
+  gateway:
+    build:
+      context: .
+    image: amazingdata-macos-gateway:local
+    platform: linux/amd64
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AMAZINGDATA_LOCAL_DATA: /data
+      AMAZINGDATA_STATE_DIR: /state
+    ports:
+      - "127.0.0.1:${AMAZINGDATA_HTTP_PORT:-8765}:8765"
+    volumes:
+      - amazingdata-cache:/data
+      - amazingdata-state:/state
+
+volumes:
+  amazingdata-cache:
+  amazingdata-state:
