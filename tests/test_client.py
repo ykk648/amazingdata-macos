@@ -51,6 +51,23 @@ class ClientTest(unittest.TestCase):
             "wss://localhost:8765/ws/market?api_key=hello%20world",
         )
 
+    def test_dataframe_payload_restores_index(self):
+        client = Client()
+        response = {
+            "ok": True,
+            "rows": 2,
+            "data": {
+                "__amazingdata_macos_type__": "dataframe",
+                "columns": ["510300.SH"],
+                "index": ["2016-06-06", "2016-06-07"],
+                "data": [[1.0], [1.01]],
+            },
+        }
+        with patch.object(CLIENT_MODULE, "urlopen", return_value=_Response(response)):
+            result = client.query("BaseData", "get_backward_factor")
+        self.assertEqual(list(result.index), ["2016-06-06", "2016-06-07"])
+        self.assertEqual(result.loc["2016-06-07", "510300.SH"], 1.01)
+
     def test_sdk_compat_restores_dataframes_and_old_kline_signature(self):
         client = Client()
         response = {

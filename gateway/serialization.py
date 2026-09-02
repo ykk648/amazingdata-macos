@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 
+DATAFRAME_MARKER = "__amazingdata_macos_type__"
+
+
 def to_jsonable(value: Any) -> Any:
     if value is None or isinstance(value, (str, bool, int)):
         return value
@@ -31,6 +34,13 @@ def to_jsonable(value: Any) -> Any:
         if hasattr(value, "tolist"):
             return to_jsonable(value.tolist())
     if module == "pandas":
+        if hasattr(value, "columns") and hasattr(value, "index"):
+            return {
+                DATAFRAME_MARKER: "dataframe",
+                "columns": [str(column) for column in value.columns],
+                "index": to_jsonable(list(value.index)),
+                "data": to_jsonable(value.to_numpy(dtype=object).tolist()),
+            }
         if hasattr(value, "to_dict"):
             try:
                 return to_jsonable(value.to_dict(orient="records"))

@@ -11,6 +11,28 @@ from urllib.request import Request, urlopen
 from .errors import GatewayConnectionError, GatewayResponseError
 
 
+_DATAFRAME_MARKER = "__amazingdata_macos_type__"
+
+
+def _restore_jsonable(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_restore_jsonable(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if value.get(_DATAFRAME_MARKER) == "dataframe":
+        try:
+            import pandas as pd
+
+            return pd.DataFrame(
+                _restore_jsonable(value["data"]),
+                index=_restore_jsonable(value["index"]),
+                columns=value["columns"],
+            )
+        except (ImportError, KeyError, TypeError, ValueError) as exc:
+            raise GatewayResponseError("Gateway returned an invalid DataFrame payload") from exc
+    return {key: _restore_jsonable(item) for key, item in value.items()}
+
+
 class Client:
     def __init__(
         self,
@@ -58,7 +80,7 @@ class Client:
         envelope = self._request("POST", "/v1/query", payload)
         if not envelope.get("ok", False):
             raise GatewayResponseError(envelope.get("error", "Unknown gateway error"))
-        return envelope if raw else envelope.get("data")
+        return envelope if raw else _restore_jsonable(envelope.get("data"))
 
     def stream(self, code_list: list[str], period: str = "snapshot") -> "MarketStream":
         from .stream import MarketStream
