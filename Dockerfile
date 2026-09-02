@@ -13,7 +13,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/requirements.txt /tmp/requirements.txt
-RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt \
+    && python -c "import tables"
 
 COPY vendor/ /opt/vendor/
 RUN test -n "$(find /opt/vendor -maxdepth 1 -name 'tgw-*.whl' -print -quit)" \
