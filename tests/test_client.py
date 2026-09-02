@@ -109,6 +109,22 @@ class ClientTest(unittest.TestCase):
             {"args": [["510300.SH"]], "is_local": True},
         )
 
+    def test_sdk_compat_translates_factor_refresh_to_gateway_cache_mode(self):
+        client = Client()
+        with patch.object(
+            client,
+            "query",
+            return_value=[[1.0]],
+        ) as query:
+            sdk_compat.BaseData(client).get_backward_factor(
+                ["510300.SH"], local_path="/host/cache", refresh=False
+            )
+
+        self.assertEqual(
+            query.call_args.kwargs,
+            {"args": [["510300.SH"]], "is_local": True},
+        )
+
     def test_package_exports_sdk_compatible_market_data(self):
         self.assertIs(ad.MarketData, sdk_compat.MarketData)
 

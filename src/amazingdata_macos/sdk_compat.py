@@ -68,6 +68,9 @@ class BaseData(_RemoteSDK):
         # The official SDK keeps this cache on the caller's filesystem. The
         # gateway owns the corresponding cache inside its container instead.
         kwargs.pop("local_path", None)
+        refresh = kwargs.pop("refresh", None)
+        if refresh is not None and "is_local" not in kwargs:
+            kwargs["is_local"] = not bool(refresh)
         result = self._call("get_backward_factor", *args, **kwargs)
         if isinstance(result, pd.DataFrame):
             return result
