@@ -109,11 +109,26 @@ class InfoData(_RemoteSDK):
         return call
 
 
+def _calendar_end(calendar: Any) -> int | None:
+    """取日历最后一个交易日；无法识别时返回 None。"""
+    if calendar is None:
+        return None
+    try:
+        values = [int(value) for value in calendar]
+    except (TypeError, ValueError):
+        return None
+    return max(values) if values else None
+
+
 class MarketData(_RemoteSDK):
     namespace = "MarketData"
 
     def __init__(self, _calendar: Any = None, client: Client | None = None):
         super().__init__(client)
+        # 原生 SDK 用构造时传入的 calendar 限定可查询的交易日范围。网关自己持有
+        # 日历，所以这里不能像以前那样把 calendar 丢掉，而是取出它的上界透传给
+        # 网关，由网关保证日历覆盖到该日期（网关同时会保证至少覆盖到今天）。
+        self._calendar_end = _calendar_end(_calendar)
 
     def query_kline(
         self,
@@ -123,6 +138,8 @@ class MarketData(_RemoteSDK):
         period: Any,
         **kwargs: Any,
     ) -> dict[str, pd.DataFrame]:
+        if self._calendar_end is not None:
+            kwargs.setdefault("calendar_end", self._calendar_end)
         result = self._call(
             "query_kline",
             code_list=code_list,

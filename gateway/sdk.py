@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .settings import Settings
@@ -13,6 +14,20 @@ from .settings import Settings
 
 LOG = logging.getLogger("amazingdata.gateway.sdk")
 ALLOWED_NAMESPACES = {"BaseData", "InfoData", "MarketData"}
+
+# A 股交易日历按北京时间；容器默认 UTC，直接用 datetime.now() 会在凌晨 00:00-08:00
+# （CST）退回前一天，导致日历少一天。
+CHINA_TZ = timezone(timedelta(hours=8))
+
+# BaseData.get_calendar(date=...) 的 date 决定日历上界：日历只覆盖 <= date 的交易日。
+# 该 SDK 把 date 的默认值在模块导入时求值一次（见 AmazingData/query_api/base_data.py
+# 类体里的 datetime_to_int()），于是"不传 date"会永久冻结在网关进程启动当天。
+CALENDAR_MARKET = "SH"
+
+
+def trading_day_int() -> int:
+    """当前北京日期 YYYYMMDD；网关日历至少要覆盖到这一天。"""
+    return int(datetime.now(CHINA_TZ).strftime("%Y%m%d"))
 
 
 class SDKUnavailable(RuntimeError):
@@ -29,6 +44,9 @@ class SDKManager:
         self.last_error = ""
         self.sdk_version = "unknown"
         self._calendar: Any | None = None
+        # 上次取日历时使用的 date 上界；用它判断"是否需要重新取"，避免每个请求
+        # 都打一次 TGW，也避免周末（日历末位<今天）反复刷新。
+        self._calendar_target = 0
         self._state_lock = threading.RLock()
         self.call_lock = threading.RLock()
 
@@ -68,7 +86,7 @@ class SDKManager:
                     port=self.settings.tgw_port,
                 )
                 if self.settings.verify_login:
-                    self._calendar = self.module.BaseData().get_calendar()
+                    self._load_calendar()
                 with self._state_lock:
                     now = time.time()
                     self.ready = True
@@ -84,6 +102,10 @@ class SDKManager:
 
     def health(self) -> dict[str, Any]:
         with self._state_lock:
+            calendar_last_day = (
+                int(max(self._calendar)) if self._calendar else None
+            )
+            today = trading_day_int()
             return {
                 "status": "ready" if self.ready else "degraded",
                 "ready": self.ready,
@@ -93,6 +115,11 @@ class SDKManager:
                 "login_started_at": self.login_started_at,
                 "last_success_at": self.last_success_at,
                 "last_error": self.last_error,
+                # 日历覆盖范围由 SDK 的 date 参数决定，缺失会让 K 线查询静默少几天。
+                "trading_day": today,
+                "calendar_target": self._calendar_target,
+                "calendar_last_day": calendar_last_day,
+                "calendar_stale": self._calendar_target < today,
             }
 
     def invoke(
@@ -109,8 +136,14 @@ class SDKManager:
         if not self.ready or self.module is None:
             raise SDKUnavailable(self.last_error or "TGW session is not ready")
 
+        # calendar_end 是本网关的内部参数（兼容层用它转发构造 MarketData 时传入的
+        # 日历上界），不能透传给厂商 SDK。
+        params = dict(params)
+        calendar_end = params.pop("calendar_end", None)
+        required_end = self._requested_end_date(method, args, params, calendar_end)
+
         with self.call_lock:
-            instance = self._make_instance(namespace)
+            instance = self._make_instance(namespace, required_end)
             function = getattr(instance, method, None)
             if function is None or not callable(function):
                 raise AttributeError(f"{namespace}.{method} does not exist")
@@ -133,7 +166,7 @@ class SDKManager:
             return False
         with self.call_lock:
             try:
-                self._calendar = self.module.BaseData().get_calendar()
+                self._load_calendar(force=True)
                 with self._state_lock:
                     self.last_success_at = time.time()
                     self.last_error = ""
@@ -168,13 +201,75 @@ class SDKManager:
             result[namespace] = methods
         return result
 
-    def _make_instance(self, namespace: str) -> Any:
+    def _make_instance(self, namespace: str, required_end: int | None = None) -> Any:
         assert self.module is not None
         if namespace == "MarketData":
-            if self._calendar is None:
-                self._calendar = self.module.BaseData().get_calendar()
-            return self.module.MarketData(self._calendar)
+            return self.module.MarketData(self._load_calendar(required_end))
         return getattr(self.module, namespace)()
+
+    @staticmethod
+    def _requested_end_date(
+        method: str,
+        args: list[Any],
+        params: dict[str, Any],
+        calendar_end: Any = None,
+    ) -> int | None:
+        """取本次请求要求覆盖到的日期上界（query_kline 的 end_date 或调用方日历末位）。"""
+        candidates: list[Any] = []
+        if method == "query_kline":
+            candidates.append(params.get("end_date"))
+            if len(args) >= 3:
+                candidates.append(args[2])
+        candidates.append(calendar_end)
+        values = []
+        for value in candidates:
+            if value is None or isinstance(value, bool):
+                continue
+            try:
+                values.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        return max(values) if values else None
+
+    def _load_calendar(
+        self, required_end: int | None = None, force: bool = False
+    ) -> Any:
+        """返回覆盖到 ``max(今天, required_end)`` 的交易日历。
+
+        ``BaseData.get_calendar`` 的 ``date`` 默认值在厂商 SDK 导入时就被固化，
+        省略 ``date`` 会让日历永久停在网关进程启动当天，K 线查询随之静默截断。
+        这里始终显式传入 date，并且只在覆盖范围不足时才重新请求。
+        """
+        assert self.module is not None
+        with self._state_lock:
+            cached = self._calendar
+            covered = self._calendar_target
+
+        target = trading_day_int()
+        if required_end is not None and required_end > target:
+            target = required_end
+        # 强制刷新（watchdog 探活）只用来确认 TGW 仍在响应，不能把已经扩展过的
+        # 覆盖范围缩回去，否则每个探活周期后都要为同一个 end_date 再打一次 TGW。
+        if force and covered > target:
+            target = covered
+
+        if not force and cached is not None and covered >= target:
+            return cached
+
+        calendar = self.module.BaseData().get_calendar("str", CALENDAR_MARKET, target)
+        if not calendar:
+            raise RuntimeError(f"get_calendar returned no trading days for {target}")
+
+        with self._state_lock:
+            self._calendar = calendar
+            self._calendar_target = target
+        LOG.info(
+            "Trading calendar refreshed: target=%s last_day=%s days=%s",
+            target,
+            max(calendar),
+            len(calendar),
+        )
+        return calendar
 
     def _inject_defaults(
         self, function: Any, params: dict[str, Any]

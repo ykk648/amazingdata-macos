@@ -160,6 +160,26 @@ asyncio.run(main())
 colima stop
 ```
 
+### 交易日历
+
+厂商 SDK 的 `BaseData.get_calendar(date=...)` 把 `date` 当作**日历上界**，而该默认值在
+模块导入时就求值一次。进程内省略 `date` 会把日历永久冻结在网关启动当天，`MarketData`
+再拿 `self.calendar` 截断 K 线查询区间，于是跨天后日线/5 分钟线会静默少几天，只有重启
+网关才恢复。
+
+网关因此始终显式传 `date = max(今天(北京时间), 本次请求的 end_date)`，仅在覆盖不足时
+重新取日历。`GET /health` 会暴露排查所需的字段：
+
+```sh
+curl -s http://127.0.0.1:8765/health
+# trading_day        今天（北京时间 YYYYMMDD）
+# calendar_target    网关日历已覆盖到的日期上界
+# calendar_last_day  日历中最后一个交易日
+# calendar_stale     为 true 表示日历没有覆盖到今天
+```
+
+`calendar_stale=true` 说明日历已过期，通常是 TGW 登录异常，可查 `./scripts/manage.sh logs`。
+
 ## 安全与开源
 
 - Docker 端口仅绑定到 `127.0.0.1`。
