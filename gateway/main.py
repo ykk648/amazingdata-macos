@@ -11,6 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconne
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from .diagnostics import install_crash_diagnostics, install_signal_logging
 from .sdk import SDKManager, SDKUnavailable
 from .serialization import count_rows, to_jsonable
 from .settings import Settings
@@ -41,8 +42,44 @@ async def _watchdog() -> None:
         await asyncio.sleep(SETTINGS.watchdog_interval)
         if not SETTINGS.credentials_complete:
             continue
-        ok = await asyncio.to_thread(SDK.probe)
-        failures = 0 if ok else failures + 1
+        # 有实时订阅或正在处理的查询时绝不释放席位。
+        busy = bool(SUBSCRIPTIONS.codes) or SDK.inflight_queries > 0
+        if await asyncio.to_thread(SDK.maybe_release_idle, busy=busy):
+            failures = 0
+            continue
+        if not SDK.ready:
+            if SDK.released_for_idle and not busy:
+                # 空闲让座后不主动抢回来：单席位账号留给 ECS live 用，
+                # 本机下一次真的有查询时再由 invoke -> ensure_session 取回。
+                LOG.info("watchdog tick: idle without a TGW seat; nothing to probe")
+                failures = 0
+                continue
+            await asyncio.to_thread(SDK.ensure_session)
+            if SDK.ready or SDK.seat_held_by_other:
+                # ECS live 占着唯一的席位时是「排队等座」，不是故障；
+                # 计成失败会导致「重启→抢座→再被踢」的互相踢号循环。
+                LOG.info(
+                    "watchdog tick: waiting for the TGW seat held by another host "
+                    "(inflight=%s)",
+                    SDK.inflight_queries,
+                )
+                failures = 0
+                continue
+            failures += 1
+            LOG.warning(
+                "watchdog tick: session unavailable (%s) failures=%s",
+                SDK.last_error,
+                failures,
+            )
+        else:
+            ok = await asyncio.to_thread(SDK.probe)
+            failures = 0 if ok else failures + 1
+            LOG.info(
+                "watchdog tick: ok=%s failures=%s inflight_queries=%s",
+                ok,
+                failures,
+                SDK.inflight_queries,
+            )
         if failures >= SETTINGS.watchdog_failures:
             LOG.critical(
                 "TGW session failed %s probes; exiting for Docker restart",
@@ -53,7 +90,9 @@ async def _watchdog() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    install_crash_diagnostics(LOG)
     await asyncio.to_thread(SDK.start)
+    install_signal_logging(LOG)
     watchdog_task = asyncio.create_task(_watchdog())
     try:
         yield

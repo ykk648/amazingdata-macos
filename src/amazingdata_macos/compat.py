@@ -30,7 +30,8 @@ def login(
             f"Vendor credentials ({names}) belong in the gateway .env file. "
             "Call login() without them from macOS."
         )
-    return bool(connect(base_url, api_key, timeout).get("ready"))
+    data = connect(base_url, api_key, timeout)
+    return bool(data.get("available", data.get("ready")))
 
 
 class BaseData(RemoteNamespace):

@@ -180,6 +180,56 @@ curl -s http://127.0.0.1:8765/health
 
 `calendar_stale=true` 说明日历已过期，通常是 TGW 登录异常，可查 `./scripts/manage.sh logs`。
 
+### 单席位账号与 live 部署抢座
+
+TGW 账号有**并发连接上限**（本账号实测为 1）。厂商 `AmazingData.login` 在登录失败且
+日志出现 `Connections of this user exceed the max limitation` 时会带 `force_logout=True`
+重试 5 次，把已经在线的会话踢掉；**被踢那一侧的原生库会直接结束进程**——退出码 0、
+Python 层没有任何 traceback、uvicorn 也没有 shutdown 行，只有
+`Remote end closed connection without response` 留给客户端。本机网关与 ECS live 部署
+共用同一账号时，双方都默认抢座，于是互相踢号，这就是「故障率很高」的根因。
+
+网关上做了三件事：
+
+1. **不抢座**：`AMAZINGDATA_FORCE_LOGOUT=false`（默认）时，登录只用
+   `force_logout=False`，拿不到席位就记录 `seat is held by another host` 并排队等待，
+   等对方释放后再登录。`GET /health` 的 `seat_held_by_other` 会置为 true。
+2. **空闲让座**：连续 `AMAZINGDATA_IDLE_RELEASE_SECONDS` 秒没有查询（实时订阅或查询
+   在飞时不算空闲）就调用 `logout` 释放席位，`released_for_idle=true`、`ready=false`；
+   下一次真的来了请求，`/v1/query` 会先自动重新登录。`available` 字段表示「进程会服务
+   这次请求」，客户端探活看的是它，所以空闲让座不会被误判成故障。
+3. **不因等座自杀**：看门狗把「等 ECS 让座」和「会话坏了」区分开，前者不计失败，
+   不会触发 `restart` 循环；`compose.yaml` 同时改成 `restart: unless-stopped`，
+   因为原生库被踢时会绕过 Python 直接结束进程，只能靠 Docker 拉起。
+
+座位被别处占用时的状态：
+
+```sh
+curl -s http://127.0.0.1:8765/health | python -m json.tool
+# ready                     会话是否在线
+# available                 是否会服务请求（空闲让座后依然为 true）
+# seat_held_by_other        席位被共用账号的另一台机器占着
+# released_for_idle         空闲主动让座中
+# idle_seconds              距上次查询的空闲秒数
+```
+
+`./scripts/manage.sh logs` 里对应的关键行：
+
+```
+TGW seat is held by another host sharing this account; waiting instead of forcing a logout
+watchdog tick: waiting for the TGW seat held by another host
+TGW session released (idle 601s)
+```
+
+客户端侧（`data_lib/providers/amazingdata/`）配合做了节流与重试：请求之间默认间隔
+`AMAZINGDATA_REQUEST_INTERVAL_MS=400` 毫秒，连接类错误先救网关再退避重试（默认 3 次），
+单次请求超时 120 秒（`get_calendar` 首触可能接近 47 秒，60 秒会误判成“SDK 返回 None”
+并毒化整批符号）。
+
+**仍然要避免的**：本机研究任务和 ECS 的 09:55 / 14:40 / 16:30 定时任务在同一时段跑。
+本机不抢座，所以重叠时本机只会等座到超时，然后由研究档的可失败开关降级。要么错开时间，
+要么只在一边跑 AmazingData。
+
 ## 安全与开源
 
 - Docker 端口仅绑定到 `127.0.0.1`。

@@ -31,6 +31,14 @@ class Settings:
     watchdog_failures: int
     subscribe_codes: tuple[str, ...]
     subscribe_period: str
+    # TGW 账号是单席位：本机与 ECS live 部署共用同一账号时，厂商 login 默认会用
+    # force_logout 把对方踢下线（被踢的一方原生库会直接结束进程）。研究侧默认
+    # 只「排队等座」不抢座，live 侧因此永远不会被本机踢掉。
+    force_logout: bool = False
+    # 空闲多久主动释放席位（秒，0 = 不释放）。一直占着座位会逼 live 部署来抢。
+    idle_release_seconds: int = 600
+    # 抢不到座位时的重试间隔（秒），避免高频打 TGW 登录接口。
+    seat_retry_seconds: int = 60
 
     @property
     def credentials_complete(self) -> bool:
@@ -64,4 +72,11 @@ class Settings:
             subscribe_period=os.getenv(
                 "AMAZINGDATA_SUBSCRIBE_PERIOD", "snapshot"
             ).strip(),
+            force_logout=_as_bool(os.getenv("AMAZINGDATA_FORCE_LOGOUT"), False),
+            idle_release_seconds=max(
+                0, _as_int(os.getenv("AMAZINGDATA_IDLE_RELEASE_SECONDS"), 600)
+            ),
+            seat_retry_seconds=max(
+                5, _as_int(os.getenv("AMAZINGDATA_SEAT_RETRY_SECONDS"), 60)
+            ),
         )

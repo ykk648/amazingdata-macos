@@ -177,7 +177,8 @@ def connect(
 
 def login(*_args: Any, **_kwargs: Any) -> bool:
     """Verify the local gateway instead of accepting vendor credentials on macOS."""
-    return bool(connect().get("ready"))
+    data = connect()
+    return bool(data.get("available", data.get("ready")))
 
 
 def client() -> Client:

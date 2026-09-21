@@ -10,7 +10,8 @@ wait_for_gateway() {
     port=$(awk -F= '/^AMAZINGDATA_HTTP_PORT=/{print $2}' .env 2>/dev/null || true)
     port=${port:-8765}
     health_url="http://127.0.0.1:${port}/health"
-    attempts=30
+    # TGW 会话拥塞时 get_calendar 可能耗时近一分钟，启动等待必须留足余量。
+    attempts=120
 
     while [ "$attempts" -gt 0 ]; do
         if curl -fsS "$health_url" >/dev/null 2>&1; then
