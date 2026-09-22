@@ -17,6 +17,7 @@ from gateway.settings import Settings
 
 # 模拟"昨天启动的容器"：厂商 SDK 固化的默认 date
 FROZEN_DEFAULT = 20260916
+TEST_TODAY = 20260921
 TRADING_DAYS = [20260914, 20260915, 20260916, 20260917, 20260918, 20260921]
 
 
@@ -92,6 +93,14 @@ def _manager(recorder=None):
     return manager, recorder
 
 
+class _FrozenTradingDayTestCase(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = patch("gateway.sdk.trading_day_int", return_value=TEST_TODAY)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
 class TradingDayTests(unittest.TestCase):
     def test_trading_day_uses_china_time_not_container_utc(self):
         import datetime as dt
@@ -108,7 +117,7 @@ class TradingDayTests(unittest.TestCase):
         self.assertEqual(trading_day_int(), expected)
 
 
-class LoadCalendarTests(unittest.TestCase):
+class LoadCalendarTests(_FrozenTradingDayTestCase):
     def test_never_relies_on_frozen_default_date(self):
         manager, recorder = _manager()
 
@@ -117,8 +126,8 @@ class LoadCalendarTests(unittest.TestCase):
         self.assertTrue(recorder.calendar_calls)
         for call in recorder.calendar_calls:
             self.assertEqual(len(call), 3, f"必须显式传 date: {call}")
-        self.assertEqual(manager._calendar_target, trading_day_int())
-        self.assertEqual(calendar[-1], max(d for d in TRADING_DAYS if d <= trading_day_int()))
+        self.assertEqual(manager._calendar_target, TEST_TODAY)
+        self.assertEqual(calendar[-1], max(d for d in TRADING_DAYS if d <= TEST_TODAY))
         self.assertGreater(calendar[-1], FROZEN_DEFAULT)
 
     def test_extends_calendar_to_cover_requested_end_date(self):
@@ -198,7 +207,7 @@ class RequestedEndDateTests(unittest.TestCase):
         )
 
 
-class InvokeCalendarTests(unittest.TestCase):
+class InvokeCalendarTests(_FrozenTradingDayTestCase):
     def test_market_data_is_built_with_calendar_covering_end_date(self):
         manager, recorder = _manager()
 
@@ -221,9 +230,9 @@ class InvokeCalendarTests(unittest.TestCase):
             {"code_list": ["510300.SH"], "begin_date": 20260101, "period": "day"},
         )
 
-        self.assertEqual(manager._calendar_target, trading_day_int())
+        self.assertEqual(manager._calendar_target, TEST_TODAY)
         self.assertEqual(result["calendar"][-1], max(
-            d for d in TRADING_DAYS if d <= trading_day_int()))
+            d for d in TRADING_DAYS if d <= TEST_TODAY))
 
     def test_client_supplied_calendar_end_is_honoured_and_stripped(self):
         manager, _ = _manager()
@@ -238,14 +247,14 @@ class InvokeCalendarTests(unittest.TestCase):
         self.assertNotIn("calendar_end", result["kwargs"])
 
 
-class HealthTests(unittest.TestCase):
+class HealthTests(_FrozenTradingDayTestCase):
     def test_reports_calendar_coverage_and_staleness(self):
         manager, _ = _manager()
         manager._load_calendar(required_end=20260921)
 
         health = manager.health()
 
-        self.assertEqual(health["trading_day"], trading_day_int())
+        self.assertEqual(health["trading_day"], TEST_TODAY)
         self.assertEqual(health["calendar_target"], 20260921)
         self.assertEqual(health["calendar_last_day"], 20260921)
         self.assertFalse(health["calendar_stale"])
